@@ -11,7 +11,7 @@ license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.0.0",
-    "uptime-kuma-api>=1.2.0",
+    "python-socketio[client]>=5.11.0",
 ]
 
 [project.scripts]

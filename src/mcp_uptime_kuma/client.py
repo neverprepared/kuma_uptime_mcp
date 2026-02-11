@@ -2,14 +2,14 @@
 
 import os
 
-from uptime_kuma_api import UptimeKumaApi
+from .kuma_api import KumaV2Api
 
 
 class KumaClient:
-    """Thin wrapper around UptimeKumaApi that manages connection lifecycle."""
+    """Thin wrapper around KumaV2Api that manages connection lifecycle."""
 
     def __init__(self):
-        self._api: UptimeKumaApi | None = None
+        self._api: KumaV2Api | None = None
         self.url = os.environ.get("UPTIME_KUMA_URL", "")
         self.username = os.environ.get("UPTIME_KUMA_USERNAME")
         self.password = os.environ.get("UPTIME_KUMA_PASSWORD")
@@ -27,9 +27,9 @@ class KumaClient:
                 "UPTIME_KUMA_PASSWORD are required"
             )
 
-    def _connect(self) -> UptimeKumaApi:
+    def _connect(self) -> KumaV2Api:
         self._validate_config()
-        api = UptimeKumaApi(self.url)
+        api = KumaV2Api(self.url)
         if self.token:
             api.login_by_token(self.token)
         else:
@@ -40,7 +40,7 @@ class KumaClient:
         return api
 
     @property
-    def api(self) -> UptimeKumaApi:
+    def api(self) -> KumaV2Api:
         if self._api is None:
             self._api = self._connect()
         return self._api
@@ -53,7 +53,7 @@ class KumaClient:
                 pass
             self._api = None
 
-    def reconnect(self) -> UptimeKumaApi:
+    def reconnect(self) -> KumaV2Api:
         self.disconnect()
         self._api = self._connect()
         return self._api
