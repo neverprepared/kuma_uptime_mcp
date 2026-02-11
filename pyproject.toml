@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-uptime-kuma"
+version = "0.1.0"
+description = "MCP server for Uptime Kuma v2 with full CRUD on monitors, notifications, tags, status pages, and maintenance"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "uptime-kuma-api>=1.2.0",
+]
+
+[project.scripts]
+mcp-uptime-kuma = "mcp_uptime_kuma.server:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_uptime_kuma"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
