@@ -1,20 +1,34 @@
 """Drop-in replacement for UptimeKumaApi targeting Uptime Kuma v2.x.
 
 The uptime-kuma-api library (v1.2.1) only supports Kuma v1.21.3-1.23.2.
-Kuma v2.0.2 never sends Socket.IO acknowledgements for *any* event —
-``login``, ``add``, ``editMonitor``, ``deleteMonitor``, ``getTags``, etc.
-This means ``sio.call()`` (which blocks waiting for an ack) always times
-out.  This module uses ``sio.emit`` with a callback + ``threading.Event``
-for all operations, returning ``None`` when the server doesn't ack (which
-is the normal case — the operation still succeeds server-side).
+
+Key compatibility issues with Kuma v2.0.2 + python-engineio:
+
+1. **Polling payload limit** — After login, Kuma sends ~70+ packets in one
+   polling response (monitorTypeList, heartbeatLists, uptimes, etc.).
+   python-engineio defaults to ``max_decode_packets=16``, causing a
+   ``ValueError`` that drops the connection.  We raise the limit to 128.
+
+2. **Ack delivery is unreliable** — Acks are often bundled with the large
+   post-login payload.  If the payload is dropped (see #1) or delayed,
+   ``sio.call()`` times out.  We use ``sio.emit`` + ``threading.Event``
+   for ``_call``, returning ``None`` when no ack arrives (the operation
+   still succeeds server-side).
 """
 
 import logging
 import threading
 
 import socketio
+from engineio.payload import Payload
 
 logger = logging.getLogger(__name__)
+
+# Kuma v2 sends ~70+ packets in a single polling response after login
+# (monitorTypeList, heartbeatLists, uptimes, avgPings, certInfo, etc.).
+# python-engineio defaults to max_decode_packets=16 as a DoS guard,
+# which causes "Too many packets in payload" → connection drop.
+Payload.max_decode_packets = 128
 
 
 class KumaV2Api:
@@ -91,8 +105,8 @@ class KumaV2Api:
             self._avg_ping[monitor_id] = value
 
         @self.sio.on("uptime")
-        def _on_uptime(key, value):
-            self._uptime[key] = value
+        def _on_uptime(monitor_id, period, value):
+            self._uptime[f"{monitor_id}_{period}"] = value
 
         @self.sio.on("certInfo")
         def _on_cert_info(monitor_id, data):

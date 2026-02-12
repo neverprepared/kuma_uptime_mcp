@@ -121,6 +121,7 @@ def register_monitor_tools(server: FastMCP, client: KumaClient):
                 "maxretries": max_retries,
                 "upsideDown": upside_down,
                 "maxredirects": max_redirects,
+                "conditions": [],
             }
             if url:
                 params["url"] = url

@@ -228,8 +228,8 @@ class TestEventCache:
 
     def test_uptime_event(self, api):
         handler = api._handlers["uptime"]
-        handler("1_24", 0.998)
-        handler("1_720", 0.995)
+        handler("1", 24, 0.998)
+        handler("1", 720, 0.995)
         result = api.uptime(1)
         assert result["24"] == 0.998
         assert result["720"] == 0.995
