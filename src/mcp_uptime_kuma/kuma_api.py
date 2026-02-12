@@ -108,16 +108,24 @@ class KumaV2Api:
     # ── Login / connection ────────────────────────────────────────────
 
     def _do_login(self):
-        """Emit login (no ack in v2); monitorList proves success."""
+        """Emit login with a no-op callback so the packet includes an ack ID.
+
+        Kuma v2 ignores login events that lack an ack callback in the
+        Socket.IO packet.  The server never actually sends the ack back,
+        so we rely on the ``monitorList`` broadcast as proof of success.
+        """
         self._login_event.clear()
+        _noop = lambda *a: None  # noqa: E731
         if self._credentials.get("_by_token"):
-            self.sio.emit("loginByToken", self._credentials["token"])
+            self.sio.emit(
+                "loginByToken", self._credentials["token"], callback=_noop,
+            )
         else:
             self.sio.emit("login", {
                 "username": self._credentials.get("username", ""),
                 "password": self._credentials.get("password", ""),
                 "token": self._credentials.get("token", ""),
-            })
+            }, callback=_noop)
 
     def _wait_for_login(self):
         if not self._login_event.wait(timeout=self._timeout):

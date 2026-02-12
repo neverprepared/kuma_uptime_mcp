@@ -73,7 +73,7 @@ class TestLogin:
     def test_login_emits_credentials(self, api):
         api._login_event.clear()
 
-        def fake_emit(event, data):
+        def fake_emit(event, data, **kwargs):
             if event == "login":
                 # Simulate server sending monitorList after login
                 api._login_event.set()
@@ -86,7 +86,7 @@ class TestLogin:
     def test_login_with_mfa(self, api):
         api._login_event.clear()
 
-        def fake_emit(event, data):
+        def fake_emit(event, data, **kwargs):
             if event == "login":
                 api._login_event.set()
 
@@ -97,7 +97,7 @@ class TestLogin:
     def test_login_by_token_emits_token(self, api):
         api._login_event.clear()
 
-        def fake_emit(event, data):
+        def fake_emit(event, data, **kwargs):
             if event == "loginByToken":
                 api._login_event.set()
 
@@ -118,11 +118,13 @@ class TestLogin:
         handler = api._handlers["connect"]
         api.sio.emit = MagicMock()
         handler()
-        api.sio.emit.assert_called_once_with("login", {
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("login", {
             "username": "admin",
             "password": "secret",
             "token": "",
         })
+        assert call_args[1].get("callback") is not None
 
     def test_disconnect_event_clears_login(self, api):
         api._login_event.set()
