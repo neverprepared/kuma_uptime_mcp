@@ -157,10 +157,19 @@ class KumaV2Api:
     # ── Internal call helper ──────────────────────────────────────────
 
     def _call(self, event, data=None, timeout=None):
-        """Emit *event* with optional *data* and wait for the ack."""
+        """Emit *event* with optional *data* and wait for the ack.
+
+        If the login state has been lost (e.g. the server recycled the
+        session), attempt a single re-login before giving up.
+        """
         t = timeout or self._timeout
         if not self._login_event.wait(timeout=t):
-            raise TimeoutError("Not logged in")
+            if self._credentials:
+                self._do_login()
+                if not self._login_event.wait(timeout=t):
+                    raise TimeoutError("Not logged in")
+            else:
+                raise TimeoutError("Not logged in")
         with self._call_lock:
             return self.sio.call(event, data, timeout=t)
 
