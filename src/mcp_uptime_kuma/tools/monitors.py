@@ -134,6 +134,8 @@ def register_monitor_tools(server: FastMCP, client: KumaClient):
                 params["accepted_statuscodes"] = [
                     s.strip() for s in accepted_statuscodes.split(",")
                 ]
+            else:
+                params["accepted_statuscodes"] = ["200-299"]
             if method != "GET":
                 params["method"] = method
             if body:
@@ -151,7 +153,6 @@ def register_monitor_tools(server: FastMCP, client: KumaClient):
             if docker_container:
                 params["docker_container"] = docker_container
 
-            nid_list = []
             if notification_ids:
                 nid_list = [
                     int(x.strip()) for x in notification_ids.split(",")
@@ -159,6 +160,8 @@ def register_monitor_tools(server: FastMCP, client: KumaClient):
                 params["notificationIDList"] = {
                     str(nid): True for nid in nid_list
                 }
+            else:
+                params["notificationIDList"] = {}
 
             result = client.api.add_monitor(**params)
             return json.dumps({"status": "created", "result": result})

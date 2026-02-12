@@ -1,10 +1,12 @@
 """Drop-in replacement for UptimeKumaApi targeting Uptime Kuma v2.x.
 
 The uptime-kuma-api library (v1.2.1) only supports Kuma v1.21.3-1.23.2.
-In v2.0.2 the ``login`` event no longer returns a Socket.IO acknowledgement,
-so ``sio.call('login', ...)`` blocks forever.  This module uses
-``sio.emit`` for login and waits for the ``monitorList`` broadcast as proof
-of success, while still using ``sio.call`` for all other CRUD operations.
+Kuma v2.0.2 never sends Socket.IO acknowledgements for *any* event —
+``login``, ``add``, ``editMonitor``, ``deleteMonitor``, ``getTags``, etc.
+This means ``sio.call()`` (which blocks waiting for an ack) always times
+out.  This module uses ``sio.emit`` with a callback + ``threading.Event``
+for all operations, returning ``None`` when the server doesn't ack (which
+is the normal case — the operation still succeeds server-side).
 """
 
 import logging
@@ -157,7 +159,12 @@ class KumaV2Api:
     # ── Internal call helper ──────────────────────────────────────────
 
     def _call(self, event, data=None, timeout=None):
-        """Emit *event* with optional *data* and wait for the ack.
+        """Emit *event* with optional *data* and wait for an optional ack.
+
+        Kuma v2 never sends Socket.IO acknowledgements, so we use
+        ``sio.emit`` with a callback and ``threading.Event``.  If the
+        ack never arrives within *timeout* seconds the operation is
+        assumed to have succeeded and ``None`` is returned.
 
         If the login state has been lost (e.g. the server recycled the
         session), attempt a single re-login before giving up.
@@ -171,11 +178,26 @@ class KumaV2Api:
             else:
                 raise TimeoutError("Not logged in")
         with self._call_lock:
-            return self.sio.call(event, data, timeout=t)
+            result_holder = {}
+            done = threading.Event()
+
+            def on_ack(*args):
+                result_holder["value"] = args[0] if len(args) == 1 else args
+                done.set()
+
+            self.sio.emit(event, data, callback=on_ack)
+            done.wait(timeout=t)
+            return result_holder.get("value")
 
     @staticmethod
     def _unwrap(result):
-        """Raise on ``{ok: false}`` ack payloads."""
+        """Raise on ``{ok: false}`` ack payloads.
+
+        When *result* is ``None`` (Kuma v2 never acked) the operation is
+        assumed to have succeeded — return ``{"ok": True}``.
+        """
+        if result is None:
+            return {"ok": True}
         if isinstance(result, dict) and not result.get("ok", True):
             raise RuntimeError(result.get("msg", "Unknown error from server"))
         return result

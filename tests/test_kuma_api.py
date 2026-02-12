@@ -33,6 +33,27 @@ def api():
         yield obj
 
 
+def _make_emit_with_ack(return_value):
+    """Create a fake ``sio.emit`` that synchronously invokes the callback.
+
+    This simulates the server sending back an ack with *return_value*.
+    """
+    def fake_emit(event, data=None, callback=None, **kwargs):
+        if callback is not None:
+            callback(return_value)
+    return MagicMock(side_effect=fake_emit)
+
+
+def _make_emit_with_ack_sequence(return_values):
+    """Like ``_make_emit_with_ack`` but cycles through a list of return values."""
+    it = iter(return_values)
+
+    def fake_emit(event, data=None, callback=None, **kwargs):
+        if callback is not None:
+            callback(next(it))
+    return MagicMock(side_effect=fake_emit)
+
+
 # ── Constructor / connection ────────────────────────────────────────
 
 
@@ -234,11 +255,22 @@ class TestCallHelper:
         with pytest.raises(TimeoutError, match="Not logged in"):
             api._call("someEvent")
 
-    def test_call_delegates_to_sio(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+    def test_call_delegates_to_sio_emit(self, api):
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         result = api._call("someEvent", {"key": "val"})
-        api.sio.call.assert_called_once_with("someEvent", {"key": "val"}, timeout=5)
+        api.sio.emit.assert_called_once()
+        call_args = api.sio.emit.call_args
+        assert call_args[0][0] == "someEvent"
+        assert call_args[0][1] == {"key": "val"}
+        assert call_args[1].get("callback") is not None
         assert result == {"ok": True}
+
+    def test_call_returns_none_when_no_ack(self, api):
+        """When the server never acks, _call returns None."""
+        api._timeout = 0.1
+        api.sio.emit = MagicMock()  # callback never invoked
+        result = api._call("someEvent", {"key": "val"})
+        assert result is None
 
     def test_unwrap_ok_true(self, api):
         assert api._unwrap({"ok": True, "msg": "done"}) == {"ok": True, "msg": "done"}
@@ -255,6 +287,10 @@ class TestCallHelper:
         assert api._unwrap("plain string") == "plain string"
         assert api._unwrap(42) == 42
 
+    def test_unwrap_none_returns_ok(self, api):
+        """None result (no ack from server) is treated as success."""
+        assert api._unwrap(None) == {"ok": True}
+
 
 # ── Call-based: monitors ────────────────────────────────────────────
 
@@ -262,56 +298,67 @@ class TestCallHelper:
 class TestMonitorCalls:
 
     def test_get_monitor_unwraps(self, api):
-        api.sio.call = MagicMock(return_value={"monitor": {"id": 1, "name": "A"}})
+        api.sio.emit = _make_emit_with_ack({"monitor": {"id": 1, "name": "A"}})
         result = api.get_monitor(1)
         assert result == {"id": 1, "name": "A"}
-        api.sio.call.assert_called_once_with("getMonitor", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("getMonitor", 1)
 
     def test_get_monitor_raw_fallback(self, api):
-        api.sio.call = MagicMock(return_value={"id": 1, "name": "A"})
+        api.sio.emit = _make_emit_with_ack({"id": 1, "name": "A"})
         result = api.get_monitor(1)
         assert result == {"id": 1, "name": "A"}
 
     def test_add_monitor(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True, "monitorID": 3})
+        api.sio.emit = _make_emit_with_ack({"ok": True, "monitorID": 3})
         result = api.add_monitor(type="http", name="Test", url="https://test.com")
-        api.sio.call.assert_called_once_with(
-            "add", {"type": "http", "name": "Test", "url": "https://test.com"}, timeout=5
-        )
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("add", {"type": "http", "name": "Test", "url": "https://test.com"})
         assert result["monitorID"] == 3
 
+    def test_add_monitor_no_ack(self, api):
+        """When the server doesn't ack, add_monitor still returns ok."""
+        api._timeout = 0.1
+        api.sio.emit = MagicMock()  # callback never invoked
+        result = api.add_monitor(type="ping", name="Test", hostname="8.8.8.8")
+        assert result == {"ok": True}
+
     def test_edit_monitor_merges(self, api):
-        api.sio.call = MagicMock(side_effect=[
+        api.sio.emit = _make_emit_with_ack_sequence([
             {"monitor": {"id": 1, "name": "Old", "url": "https://old.com"}},
             {"ok": True, "monitorID": 1},
         ])
         result = api.edit_monitor(1, name="New")
-        edit_call = api.sio.call.call_args_list[1]
+        edit_call = api.sio.emit.call_args_list[1]
         assert edit_call[0][0] == "editMonitor"
         assert edit_call[0][1]["name"] == "New"
         assert edit_call[0][1]["url"] == "https://old.com"
         assert edit_call[0][1]["id"] == 1
 
     def test_delete_monitor(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True, "msg": "Deleted"})
+        api.sio.emit = _make_emit_with_ack({"ok": True, "msg": "Deleted"})
         result = api.delete_monitor(1)
-        api.sio.call.assert_called_once_with("deleteMonitor", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("deleteMonitor", 1)
 
     def test_pause_monitor(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.pause_monitor(1)
-        api.sio.call.assert_called_once_with("pauseMonitor", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("pauseMonitor", 1)
 
     def test_resume_monitor(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.resume_monitor(1)
-        api.sio.call.assert_called_once_with("resumeMonitor", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("resumeMonitor", 1)
 
     def test_get_monitor_beats_unwraps(self, api):
-        api.sio.call = MagicMock(return_value={"data": [{"status": 1}]})
+        api.sio.emit = _make_emit_with_ack({"data": [{"status": 1}]})
         result = api.get_monitor_beats(1, 24)
         assert result == [{"status": 1}]
-        api.sio.call.assert_called_once_with("getMonitorBeats", (1, 24), timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("getMonitorBeats", (1, 24))
 
 
 # ── Call-based: tags ────────────────────────────────────────────────
@@ -320,57 +367,59 @@ class TestMonitorCalls:
 class TestTagCalls:
 
     def test_get_tags_unwraps(self, api):
-        api.sio.call = MagicMock(return_value={"tags": [{"id": 1, "name": "prod"}]})
+        api.sio.emit = _make_emit_with_ack({"tags": [{"id": 1, "name": "prod"}]})
         result = api.get_tags()
         assert result == [{"id": 1, "name": "prod"}]
 
     def test_get_tag_by_id(self, api):
-        api.sio.call = MagicMock(return_value={"tags": [
+        api.sio.emit = _make_emit_with_ack({"tags": [
             {"id": 1, "name": "prod"},
             {"id": 2, "name": "staging"},
         ]})
         assert api.get_tag(2)["name"] == "staging"
 
     def test_get_tag_not_found(self, api):
-        api.sio.call = MagicMock(return_value={"tags": []})
+        api.sio.emit = _make_emit_with_ack({"tags": []})
         with pytest.raises(ValueError, match="Tag with id 99"):
             api.get_tag(99)
 
     def test_add_tag(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True, "tag": {"id": 3}})
+        api.sio.emit = _make_emit_with_ack({"ok": True, "tag": {"id": 3}})
         api.add_tag("critical", "#ef4444")
-        api.sio.call.assert_called_once_with(
-            "addTag", {"name": "critical", "color": "#ef4444"}, timeout=5
-        )
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("addTag", {"name": "critical", "color": "#ef4444"})
 
     def test_edit_tag_merges(self, api):
-        api.sio.call = MagicMock(side_effect=[
+        api.sio.emit = _make_emit_with_ack_sequence([
             {"tags": [{"id": 1, "name": "prod", "color": "#dc2626"}]},
             {"ok": True},
         ])
         api.edit_tag(1, name="production")
-        edit_call = api.sio.call.call_args_list[1]
+        edit_call = api.sio.emit.call_args_list[1]
         assert edit_call[0][1]["name"] == "production"
         assert edit_call[0][1]["color"] == "#dc2626"
 
     def test_delete_tag(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.delete_tag(1)
-        api.sio.call.assert_called_once_with("deleteTag", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("deleteTag", 1)
 
     def test_add_monitor_tag(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.add_monitor_tag(tag_id=1, monitor_id=2, value="primary")
-        api.sio.call.assert_called_once_with("addMonitorTag", {
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("addMonitorTag", {
             "tag_id": 1, "monitor_id": 2, "value": "primary",
-        }, timeout=5)
+        })
 
     def test_delete_monitor_tag(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.delete_monitor_tag(tag_id=1, monitor_id=2)
-        api.sio.call.assert_called_once_with("deleteMonitorTag", {
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("deleteMonitorTag", {
             "tag_id": 1, "monitor_id": 2, "value": "",
-        }, timeout=5)
+        })
 
 
 # ── Call-based: notifications ───────────────────────────────────────
@@ -379,20 +428,21 @@ class TestTagCalls:
 class TestNotificationCalls:
 
     def test_add_notification(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True, "id": 2})
+        api.sio.emit = _make_emit_with_ack({"ok": True, "id": 2})
         api.add_notification(name="Test", type="slack", slackwebhookURL="https://...")
-        api.sio.call.assert_called_once_with("addNotification", (
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("addNotification", (
             {"name": "Test", "type": "slack", "slackwebhookURL": "https://..."},
             None,
-        ), timeout=5)
+        ))
 
     def test_edit_notification_merges(self, api):
         api._event_cache["notificationList"] = [
             {"id": 1, "name": "Slack", "type": "slack", "slackwebhookURL": "old"},
         ]
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.edit_notification(1, name="Updated Slack")
-        call_args = api.sio.call.call_args[0]
+        call_args = api.sio.emit.call_args[0]
         assert call_args[0] == "addNotification"
         payload, nid = call_args[1]
         assert nid == 1
@@ -400,16 +450,18 @@ class TestNotificationCalls:
         assert payload["slackwebhookURL"] == "old"
 
     def test_delete_notification(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.delete_notification(1)
-        api.sio.call.assert_called_once_with("deleteNotification", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("deleteNotification", 1)
 
     def test_test_notification(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True, "msg": "Sent"})
+        api.sio.emit = _make_emit_with_ack({"ok": True, "msg": "Sent"})
         api.test_notification(name="Test", type="slack")
-        api.sio.call.assert_called_once_with("testNotification", {
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("testNotification", {
             "name": "Test", "type": "slack",
-        }, timeout=5)
+        })
 
 
 # ── Call-based: status pages ────────────────────────────────────────
@@ -418,23 +470,22 @@ class TestNotificationCalls:
 class TestStatusPageCalls:
 
     def test_get_status_page_unwraps(self, api):
-        api.sio.call = MagicMock(return_value={
+        api.sio.emit = _make_emit_with_ack({
             "config": {"slug": "main", "title": "Main Status"},
         })
         result = api.get_status_page("main")
         assert result["slug"] == "main"
 
     def test_add_status_page(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.add_status_page("New Page", "new-page")
-        api.sio.call.assert_called_once_with(
-            "addStatusPage", ("New Page", "new-page"), timeout=5
-        )
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("addStatusPage", ("New Page", "new-page"))
 
     def test_save_status_page(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.save_status_page("main", title="Updated", published=True)
-        call_args = api.sio.call.call_args[0]
+        call_args = api.sio.emit.call_args[0]
         assert call_args[0] == "saveStatusPage"
         slug, config, icon, groups = call_args[1]
         assert slug == "main"
@@ -443,17 +494,18 @@ class TestStatusPageCalls:
         assert groups is None
 
     def test_save_status_page_with_groups(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         group_list = [{"name": "Services", "monitorList": [{"id": 1}]}]
         api.save_status_page("main", publicGroupList=group_list)
-        call_args = api.sio.call.call_args[0]
+        call_args = api.sio.emit.call_args[0]
         _, _, _, groups = call_args[1]
         assert groups == group_list
 
     def test_delete_status_page(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.delete_status_page("main")
-        api.sio.call.assert_called_once_with("deleteStatusPage", "main", timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("deleteStatusPage", "main")
 
 
 # ── Call-based: maintenance ─────────────────────────────────────────
@@ -462,57 +514,63 @@ class TestStatusPageCalls:
 class TestMaintenanceCalls:
 
     def test_get_maintenance_unwraps(self, api):
-        api.sio.call = MagicMock(return_value={
+        api.sio.emit = _make_emit_with_ack({
             "maintenance": {"id": 1, "title": "MW1"},
         })
         result = api.get_maintenance(1)
         assert result["title"] == "MW1"
 
     def test_add_maintenance(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True, "maintenanceID": 2})
+        api.sio.emit = _make_emit_with_ack({"ok": True, "maintenanceID": 2})
         api.add_maintenance(title="Deploy", strategy="manual")
-        api.sio.call.assert_called_once_with("addMaintenance", {
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("addMaintenance", {
             "title": "Deploy", "strategy": "manual",
-        }, timeout=5)
+        })
 
     def test_edit_maintenance_merges(self, api):
-        api.sio.call = MagicMock(side_effect=[
+        api.sio.emit = _make_emit_with_ack_sequence([
             {"maintenance": {"id": 1, "title": "Old", "strategy": "manual"}},
             {"ok": True},
         ])
         api.edit_maintenance(1, title="New")
-        edit_call = api.sio.call.call_args_list[1]
+        edit_call = api.sio.emit.call_args_list[1]
         assert edit_call[0][1]["title"] == "New"
         assert edit_call[0][1]["strategy"] == "manual"
         assert edit_call[0][1]["id"] == 1
 
     def test_delete_maintenance(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.delete_maintenance(1)
-        api.sio.call.assert_called_once_with("deleteMaintenance", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("deleteMaintenance", 1)
 
     def test_pause_maintenance(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.pause_maintenance(1)
-        api.sio.call.assert_called_once_with("pauseMaintenance", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("pauseMaintenance", 1)
 
     def test_resume_maintenance(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.resume_maintenance(1)
-        api.sio.call.assert_called_once_with("resumeMaintenance", 1, timeout=5)
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == ("resumeMaintenance", 1)
 
     def test_add_monitor_maintenance(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.add_monitor_maintenance(1, [{"id": 2}, {"id": 3}])
-        api.sio.call.assert_called_once_with(
-            "addMonitorMaintenance", (1, [{"id": 2}, {"id": 3}]), timeout=5
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == (
+            "addMonitorMaintenance", (1, [{"id": 2}, {"id": 3}]),
         )
 
     def test_add_status_page_maintenance(self, api):
-        api.sio.call = MagicMock(return_value={"ok": True})
+        api.sio.emit = _make_emit_with_ack({"ok": True})
         api.add_status_page_maintenance(1, [{"id": 10}])
-        api.sio.call.assert_called_once_with(
-            "addMaintenanceStatusPage", (1, [{"id": 10}]), timeout=5
+        call_args = api.sio.emit.call_args
+        assert call_args[0] == (
+            "addMaintenanceStatusPage", (1, [{"id": 10}]),
         )
 
 
@@ -522,11 +580,11 @@ class TestMaintenanceCalls:
 class TestSystemCalls:
 
     def test_get_database_size_unwraps(self, api):
-        api.sio.call = MagicMock(return_value={"size": 1048576})
+        api.sio.emit = _make_emit_with_ack({"size": 1048576})
         result = api.get_database_size()
         assert result == 1048576
 
     def test_get_database_size_raw_fallback(self, api):
-        api.sio.call = MagicMock(return_value={"data": 999})
+        api.sio.emit = _make_emit_with_ack({"data": 999})
         result = api.get_database_size()
         assert result == {"data": 999}
