@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 mcp-uptime-kuma = "mcp_uptime_kuma.server:run"
+mcp-uptime-kuma-setup = "mcp_uptime_kuma.setup:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_uptime_kuma"]

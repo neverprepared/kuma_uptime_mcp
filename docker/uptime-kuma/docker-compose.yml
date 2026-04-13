@@ -1,0 +1,20 @@
+name: uptime-kuma
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    user: "1000:1000"
+    volumes:
+      - uptime-kuma-data:/app/data
+    labels:
+      com.neverprepared.service: "true"
+      com.neverprepared.service.name: "uptime-kuma"
+      com.neverprepared.service.url: "http://localhost:3001"
+      com.neverprepared.service.description: "Uptime monitoring dashboard"
+
+volumes:
+  uptime-kuma-data:
