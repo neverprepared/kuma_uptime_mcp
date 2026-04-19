@@ -1,0 +1,27 @@
+{
+  "name": "@neverprepared/mcp-uptime-kuma",
+  "version": "0.1.0",
+  "description": "MCP server for Uptime Kuma v2 monitoring platform",
+  "type": "module",
+  "bin": {
+    "mcp-uptime-kuma": "./bin/mcp-uptime-kuma.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "pyproject.toml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "uv sync",
+    "start": "uv run mcp-uptime-kuma"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  }
+}
