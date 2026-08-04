@@ -1,6 +1,6 @@
 {
   "name": "@neverprepared/mcp-uptime-kuma",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for Uptime Kuma v2 monitoring platform",
   "type": "module",
   "bin": {
