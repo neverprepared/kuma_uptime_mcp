@@ -1,6 +1,6 @@
 """MCP server setup and tool registration."""
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .client import KumaClient
 from .tools.monitors import register_monitor_tools
@@ -11,8 +11,8 @@ from .tools.maintenance import register_maintenance_tools
 from .tools.system import register_system_tools
 
 
-def create_server() -> tuple[FastMCP, KumaClient]:
-    server = FastMCP("mcp-uptime-kuma")
+def create_server() -> tuple[MCPServer, KumaClient]:
+    server = MCPServer("mcp-uptime-kuma")
     client = KumaClient()
 
     register_monitor_tools(server, client)
