@@ -2,12 +2,12 @@
 
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..client import KumaClient
 
 
-def register_status_page_tools(server: FastMCP, client: KumaClient):
+def register_status_page_tools(server: MCPServer, client: KumaClient):
 
     @server.tool()
     async def list_status_pages() -> str:

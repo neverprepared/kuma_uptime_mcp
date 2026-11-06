@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp_uptime_kuma.tools.maintenance import register_maintenance_tools
 from conftest import get_tools
 
 
 @pytest.fixture
 def maint_tools(client):
-    server = FastMCP("test")
+    server = MCPServer("test")
     register_maintenance_tools(server, client)
     return get_tools(server)
 

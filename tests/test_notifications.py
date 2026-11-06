@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp_uptime_kuma.tools.notifications import register_notification_tools
 from conftest import get_tools
 
 
 @pytest.fixture
 def notification_tools(client):
-    server = FastMCP("test")
+    server = MCPServer("test")
     register_notification_tools(server, client)
     return get_tools(server)
 

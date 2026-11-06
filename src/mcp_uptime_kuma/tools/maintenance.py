@@ -2,12 +2,12 @@
 
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..client import KumaClient
 
 
-def register_maintenance_tools(server: FastMCP, client: KumaClient):
+def register_maintenance_tools(server: MCPServer, client: KumaClient):
 
     @server.tool()
     async def list_maintenances() -> str:

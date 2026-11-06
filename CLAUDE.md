@@ -17,7 +17,7 @@ npm wrapper package: `@neverprepared/mcp-uptime-kuma` (thin Node shim that shell
 ```
 src/mcp_uptime_kuma/
   __main__.py     # `python -m mcp_uptime_kuma` -> server.run()
-  server.py       # create_server(): builds FastMCP("mcp-uptime-kuma") + KumaClient,
+  server.py       # create_server(): builds MCPServer("mcp-uptime-kuma") + KumaClient,
                   # registers all six tool groups; run() serves over stdio
   client.py       # KumaClient: env-var config, lazy connect, login-by-token or
                   # username/password (+ optional MFA), disconnect/reconnect
@@ -101,12 +101,17 @@ so tests must be run with `--with` (as above) or an externally installed pytest.
 
 - Every tool is an `async def` inside a `register_*_tools(server, client)` factory,
   decorated with `@server.tool()`; the docstring is the tool description and the
-  `Args:` block documents parameters (FastMCP surfaces both).
+  `Args:` block documents parameters (the SDK surfaces both).
 - Tools **return a JSON string** (`json.dumps(...)`), never a dict or object.
 - Errors are caught per-tool and returned as `json.dumps({"error": str(e)})` — tools
   should not raise out to the MCP runtime.
 - List tools return a summary shape plus a `count` field; get tools return the full record.
 - The Kuma connection is lazy: `client.api` connects on first use. Never connect at import time.
-- `mcp` is pinned `>=1.0.0,<2` — `mcp.server.fastmcp` was removed in mcp 2.0. Do not unpin.
+- `mcp` is `>=2.3,<3`. The server class is `MCPServer` from `mcp.server.mcpserver`;
+  `mcp.server.fastmcp.FastMCP` was its 1.x name and is gone. Do NOT reintroduce an
+  `mcp<2` pin to get the old import back: this package is launched through an npm
+  wrapper that re-syncs its own `.venv` on every start, so a pin applied anywhere
+  downstream (image build, running container) is undone before the interpreter
+  runs. The dependency here is the only place it can be controlled.
 - Tests mock `KumaClient`/the API entirely (`tests/conftest.py`); no live Uptime Kuma
   instance is required, and none should be needed by new tests.

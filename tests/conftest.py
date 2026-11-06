@@ -140,5 +140,5 @@ def client(mock_api):
 
 
 def get_tools(server):
-    """Extract tool functions from a FastMCP server instance."""
+    """Extract tool functions from a MCPServer server instance."""
     return {name: tool.fn for name, tool in server._tool_manager._tools.items()}
